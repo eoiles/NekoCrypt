@@ -239,23 +239,25 @@ object CryptoManager {
     fun String.applyCiphertextStyle(): String {
         // 拿到对应枚举类
         val styleType: CiphertextStyleType = CiphertextStyleType.fromName(ciphertextStyleType)
-        // 3. 获取该风格下的所有可用词组
+        // 获取该风格下的所有可用词组
         val content = styleType.content
-        //  管理最大最小值
+
+        // 管理最大最小值
         val finalMin = minOf(ciphertextStyleLengthMin, ciphertextStyleLengthMax)
         val finalMax = maxOf(ciphertextStyleLengthMin, ciphertextStyleLengthMax)
+
         // 如果 finalMin 和 finalMax 相等，直接取这个值，否则在范围内取随机数
         val count = if (finalMin == finalMax) finalMin else Random.nextInt(finalMin, finalMax + 1)
 
-        // 5. 随机挑选词组并拼接成伪装文本
-        val decorativeText = buildString {
-            repeat(count) {
-                append(content.random())
-            }
-        }
+        // 先随机挑选词组
+        val selectedParts = List(count) { content.random() }
 
-        val middleIndex = decorativeText.length / 2
-        return decorativeText.substring(0, middleIndex) + this + decorativeText.substring(middleIndex)
+        // 按“词组边界”拆成前后两半，避免切断补充平面字符
+        val middleIndex = selectedParts.size / 2
+        val prefix = selectedParts.take(middleIndex).joinToString("")
+        val suffix = selectedParts.drop(middleIndex).joinToString("")
+
+        return prefix + this + suffix
     }
 
 }
