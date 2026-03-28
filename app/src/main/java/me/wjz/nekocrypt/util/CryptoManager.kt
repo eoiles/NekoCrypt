@@ -285,6 +285,15 @@ enum class CiphertextStyleType(val displayNameResId:Int,val content:List<String>
     MANBO(
         displayNameResId = R.string.cipher_style_manbo, //  曼波！
         content = listOf("曼波~","哈吉米~","哈吉米咩那咩路多~","曼波!","曼波...","欧码叽哩，曼波！","叮咚鸡！","哈压库！","哈压库~","哈吉米！","哦耶~","duang~")
+    ),
+    MAGICSPELL(
+        displayNameResId = R.string.cipher_style_magicspell, // 魔法咒语
+        content = listOf(
+            "𝓐𝓻𝓬𝓪𝓷𝓪 ", "𝓜𝓪𝓰𝓲𝓪 ", "𝓢𝓲𝓰𝓲𝓵𝓵𝓾𝓶 ", "𝓡𝓲𝓽𝓾𝓼 ", "𝓞𝓬𝓬𝓾𝓵𝓽𝓾𝓶 ",
+            "𝓔𝓿𝓸𝓬𝓪𝓽𝓲𝓸 ", "𝓘𝓷𝓬𝓪𝓷𝓽𝓪𝓽𝓲𝓸 ", "𝓔𝓷𝓬𝓱𝓪𝓷𝓽𝓪 ", "𝓛𝓾𝓶𝓮𝓷 ", "𝓐𝓮𝓽𝓱𝓮𝓻 ",
+            "𝓢𝓸𝓵𝓿𝓮 ", "𝓒𝓸𝓪𝓰𝓾𝓵𝓪 ", "𝓜𝔂𝓼𝓽𝓲𝓬𝓪 ", "𝓡𝓾𝓷𝓪 ", "𝓥𝓮𝓻𝓫𝓾𝓶 ",
+            "𝓞𝓻𝓭𝓸 ", "𝓝𝓸𝔁 ", "𝓥𝓲𝓽𝓪 ", "𝓔𝓽𝓱𝓮𝓻 ", "𝓢𝓮𝓻𝓮𝓷𝓾𝓶 "
+        )
     );
     companion object{
         //  辅助函数
