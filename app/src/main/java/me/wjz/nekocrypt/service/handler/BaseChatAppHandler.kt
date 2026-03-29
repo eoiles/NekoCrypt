@@ -33,7 +33,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.wjz.nekocrypt.Constant
 import me.wjz.nekocrypt.CryptoMode
+import me.wjz.nekocrypt.NekoCryptApp
 import me.wjz.nekocrypt.R
+import me.wjz.nekocrypt.data.LocalDataStoreManager
 import me.wjz.nekocrypt.ui.component.DecryptionPopup
 import me.wjz.nekocrypt.ui.dialog.AttachmentPreviewState
 import me.wjz.nekocrypt.ui.dialog.AttachmentState
@@ -54,7 +56,6 @@ import me.wjz.nekocrypt.util.isEmpty
 import me.wjz.nekocrypt.util.isFileImage
 import me.wjz.nekocrypt.util.isNodeValid
 import java.io.File
-
 
 // 创建一个CompositionLocal来提供给弹窗
 val LocalFileActionHandler = compositionLocalOf<((NCFileProtocol) -> Unit)?> { null }
@@ -102,7 +103,6 @@ abstract class BaseChatAppHandler : ChatAppHandler {
     // ✨ 2. 只用一个 State 来管理所有UI状态
     private var attachmentState by mutableStateOf(AttachmentState())
 
-
     override fun onAccessibilityEvent(event: AccessibilityEvent, service: MyAccessibilityService) {
         // 悬浮窗管理逻辑
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
@@ -130,7 +130,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                 CryptoMode.IMMERSIVE.key -> {
                     if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
 //                        || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
-                        ) {
+                    ) {
                         //带防抖处理
                         immersiveDecryptionJob?.cancel()
                         // 启动一个新的扫描任务
@@ -228,7 +228,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                 )
             }
 
-            val messageNodes = if(cachedMessageListNode == null) findAllTextNodes(root!!) else
+            val messageNodes = if (cachedMessageListNode == null) findAllTextNodes(root!!) else
                 cachedMessageListNode!!.findAccessibilityNodeInfosByViewId(messageTextId)
 
             if (messageNodes.isNullOrEmpty()) {
@@ -236,7 +236,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                 // 如果找不到任何消息内容，清空缓存
                 if (immersiveDecryptionCache.isNotEmpty()) {
                     currentService.serviceScope.launch(Dispatchers.Main) {
-                         val managersToDismiss = immersiveDecryptionCache.values.toList()
+                        val managersToDismiss = immersiveDecryptionCache.values.toList()
                         Log.d(tag, "清理 ${managersToDismiss.size} 个残留弹窗。")
                         managersToDismiss.forEach { it.dismiss() }
                     }
@@ -280,7 +280,6 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                 )
                 Log.d(tag, "--------------------------")
             }
-
 
             // 整理完毕，在主线程执行操作
             if (keysToDismiss.isNotEmpty() || updateTasks.isNotEmpty() || creationTasks.isNotEmpty()) {
@@ -384,10 +383,9 @@ abstract class BaseChatAppHandler : ChatAppHandler {
 
                 Log.d(tag, "尝试在根节点 ${rootNode?.className} 中查找发送按钮...")
 
-                sendBtnNode = findSingleNode(rootNode!!,sendBtnId)
+                sendBtnNode = findSingleNode(rootNode!!, sendBtnId)
                 //sendBtnNode = findNodeById(rootNode!!,sendBtnId)
                 cachedSendBtnNode = sendBtnNode
-
             }
 
             // 3. 根据最终的节点状态来决定如何操作
@@ -404,7 +402,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                 Log.d(tag, "未找到有效发送按钮节点！")
                 removeOverlayView()
             }
-        }.onFailure { exception ->  Log.e(tag,"handleOverlayManagement错误。${exception.message}") }
+        }.onFailure { exception -> Log.e(tag, "handleOverlayManagement错误。${exception.message}") }
     }
 
     /**
@@ -479,7 +477,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                 overlayView?.let {
                     overlayWindowManager?.updateViewLayout(overlayView, getOverlayLayoutParams(rect))
                 }
-                Log.d(tag,"悬浮窗位置修正，修正后位置：$rect")
+                Log.d(tag, "悬浮窗位置修正，修正后位置：$rect")
             } else {
                 overlayWindowManager?.updateViewLayout(overlayView, params)
             }
@@ -507,22 +505,23 @@ abstract class BaseChatAppHandler : ChatAppHandler {
             val root = if (service!!.rootInActiveWindow.isEmpty()) getActiveWindowRoot()
             else currentService.rootInActiveWindow
 
-            val inputNode = findSingleNode(root!!,inputId,Constant.EDIT_TEXT)
+            val inputNode = findSingleNode(root!!, inputId, Constant.EDIT_TEXT)
             val originalText = inputNode?.text?.toString()
 
             // 2. 加密文本
-            val encryptedText =if(originalText!!.containsCiphertext()) originalText else
+            val encryptedText = if (originalText!!.containsCiphertext()) originalText else
                 CryptoManager.encrypt(originalText, currentService.currentKey).applyCiphertextStyle()
 
             // 3. 调用核心发送函数
             setTextAndSend(encryptedText)
-        }.onFailure { exception -> Log.e(tag,"doEncryptAndClick Error${exception.message}") }
+        }.onFailure { exception -> Log.e(tag, "doEncryptAndClick Error${exception.message}") }
     }
+
     // 普通点击的发送逻辑 (用于标准模式的短按)
     protected fun doNormalClick() {
         if (!isNodeValid(cachedSendBtnNode)) {
             val root = service?.rootInActiveWindow ?: return
-            cachedSendBtnNode = findSingleNode(root,sendBtnId)
+            cachedSendBtnNode = findSingleNode(root, sendBtnId)
         }
         cachedSendBtnNode?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
@@ -616,7 +615,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
 
             // 如果连活跃窗口都没有，就默认返回第一个
             return service!!.rootInActiveWindow
-        }.onFailure { exception ->  Log.e(tag,"getActiveWindowRoot Error:${exception.message}") }
+        }.onFailure { exception -> Log.e(tag, "getActiveWindowRoot Error:${exception.message}") }
         return null
     }
 
@@ -673,16 +672,20 @@ abstract class BaseChatAppHandler : ChatAppHandler {
             onDismissRequest = { sendAttachmentDialogManager = null },
             anchorRect = null
         ) {
-            SendAttachmentDialog(
-                onDismissRequest = { sendAttachmentDialogManager?.dismiss() },
-                onSendRequest = { url ->
-                    // 发送成功后，也关闭对话框
-                    Log.d(tag, "准备发送URL: $url")
-                    setTextAndSend(url)
-                    sendAttachmentDialogManager?.dismiss()
-                },
-                attachmentState = attachmentState
-            )
+            CompositionLocalProvider(
+                LocalDataStoreManager provides NekoCryptApp.instance.dataStoreManager
+            ) {
+                SendAttachmentDialog(
+                    onDismissRequest = { sendAttachmentDialogManager?.dismiss() },
+                    onSendRequest = { url ->
+                        // 发送成功后，也关闭对话框
+                        Log.d(tag, "准备发送URL: $url")
+                        setTextAndSend(url)
+                        sendAttachmentDialogManager?.dismiss()
+                    },
+                    attachmentState = attachmentState
+                )
+            }
         }
         sendAttachmentDialogManager?.show()
     }
@@ -698,9 +701,9 @@ abstract class BaseChatAppHandler : ChatAppHandler {
             Log.d(tag, "service为null！不执行发送！")
             return
         }
-        val root =if(service!!.rootInActiveWindow.isEmpty()) getActiveWindowRoot()
+        val root = if (service!!.rootInActiveWindow.isEmpty()) getActiveWindowRoot()
         else currentService.rootInActiveWindow
-        if(root == null){
+        if (root == null) {
             Log.d(tag, "root为null！不执行发送！")
             return
         }
@@ -783,12 +786,12 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                     )
                 }
 
-
                 // 开始上传，先拿到bytes，拿不到就直接返回。
-                val fileBytes = currentService.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?:return@launch
+                val fileBytes = currentService.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: return@launch
 
                 // 目前上传接口似乎不支持流式上传。
-                val result : NCFileProtocol = CryptoUploader.upload(
+                val result: NCFileProtocol = CryptoUploader.upload(
                     fileBytes = fileBytes,
                     encryptionKey = currentService.currentKey,
                     fileName = getFileName(uri),
@@ -822,7 +825,10 @@ abstract class BaseChatAppHandler : ChatAppHandler {
 
                 // 4. 上传成功，更新UI
                 updateAttachmentState { currentState ->
-                    currentState.copy(result = result.toEncryptedString(currentService.currentKey), progress = null)
+                    currentState.copy(
+                        result = result.toEncryptedString(currentService.currentKey),
+                        progress = null
+                    )
                 }
                 Log.d(tag, "上传成功，结果: $result")
 
@@ -838,7 +844,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                 resetAttachmentState()
             } finally {
                 // 无论文件上传成功与否，如果scheme是file，说明是我们创建的临时文件，删掉
-                if(uri.scheme=="file"){
+                if (uri.scheme == "file") {
                     uri.path?.let { path ->
                         val cacheFile = File(path)
                         if (cacheFile.exists()) {
@@ -862,7 +868,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
      * @return 如果解密成功，返回明文字符串；否则返回null。
      */
     private fun tryDecryptingText(textToDecrypt: String?): String? {
-        if(textToDecrypt == null)return null
+        if (textToDecrypt == null) return null
         val currentService = service ?: return null
         // 1. 先判断是否真的包含“猫语”，避免不必要的计算
         if (!textToDecrypt.containsCiphertext()) {
@@ -886,7 +892,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
 
     // 重置附件的状态
     fun resetAttachmentState() {
-        attachmentState= AttachmentState()
+        attachmentState = AttachmentState()
     }
 
     // 更新附件状态

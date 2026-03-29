@@ -2,15 +2,6 @@ package me.wjz.nekocrypt.ui.dialog
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,29 +10,32 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,159 +55,198 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import me.wjz.nekocrypt.Constant
 import me.wjz.nekocrypt.R
+import me.wjz.nekocrypt.SettingKeys
+import me.wjz.nekocrypt.data.rememberKeyArrayState
+import me.wjz.nekocrypt.hook.rememberDataStoreState
 import me.wjz.nekocrypt.ui.activity.AttachmentPickerActivity
 import me.wjz.nekocrypt.ui.theme.NekoCryptTheme
+import me.wjz.nekocrypt.util.CiphertextStyleType
 
-// ✨ 1. 将UI状态数据类聚合并定义在这里
 data class AttachmentState(
     var progress: Float? = null,
     var previewInfo: AttachmentPreviewState? = null,
-    var result: String = "", // NCFileProtocol的格式
+    var result: String = "",
 ) {
-    // 计算属性，方便在UI逻辑中使用
-    val isUploading: Boolean get() = progress != null
-    val isUploadFinished: Boolean get() = result.isNotEmpty()
+    val isUploading: Boolean
+        get() = progress != null
+
+    val isUploadFinished: Boolean
+        get() = result.isNotEmpty()
 }
 
-// 预览信息的具体内容
 data class AttachmentPreviewState(
     var uri: Uri,
     var fileName: String,
     var fileSizeFormatted: String,
     var isImage: Boolean,
-    val imageAspectRatio: Float? = null, // 新增：图片的宽高比
+    val imageAspectRatio: Float? = null,
 )
 
-/**
- * ✨ [最终精致版] 发送附件的对话框UI内容
- * 带有动画、进度反馈，并合并了图片/视频选项。
- */
+private enum class MenuPanel {
+    NONE,
+    STYLE,
+    KEY
+}
+
 @Composable
 fun SendAttachmentDialog(
-    // ✨ 2. 接收聚合后的状态对象
     attachmentState: AttachmentState,
     onDismissRequest: () -> Unit,
     onSendRequest: (String) -> Unit,
 ) {
     val coroutineScope = rememberCoroutineScope()
+    var activePanel by remember { mutableStateOf(MenuPanel.NONE) }
 
-    var isVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { isVisible = true }
+    val keysFromDataStore: Array<String> by rememberKeyArrayState()
 
+    var activeKey by rememberDataStoreState(
+        SettingKeys.CURRENT_KEY,
+        Constant.DEFAULT_SECRET_KEY
+    )
 
-    fun dismissWithAnimation() {
+    var ciphertextStyleType by rememberDataStoreState(
+        SettingKeys.CIPHERTEXT_STYLE,
+        CiphertextStyleType.NEKO.toString()
+    )
+
+    val displayKeys = remember(keysFromDataStore, activeKey) {
+        when {
+            keysFromDataStore.isNotEmpty() -> keysFromDataStore.toList()
+            activeKey.isNotBlank() -> listOf(activeKey)
+            else -> listOf(Constant.DEFAULT_SECRET_KEY)
+        }
+    }
+
+    fun dismissDirectly() {
         coroutineScope.launch {
-            isVisible = false
-            delay(300)
+            delay(80)
             onDismissRequest()
         }
     }
 
     NekoCryptTheme(darkTheme = false) {
         Box(modifier = Modifier.padding(8.dp)) {
-            AnimatedVisibility(
-                visible = isVisible,
-                enter = fadeIn(animationSpec = tween(200)) + scaleIn(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessLow
-                    )
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
                 ),
-                exit = fadeOut(animationSpec = tween(300)) + scaleOut(animationSpec = tween(300))
             ) {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = stringResource(R.string.crypto_attachment_title),
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        text = "菜单",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
 
-                        Box(contentAlignment = Alignment.Center) {
-                            // 封装好的组件，包含图片和文件按钮。
-                            AttachmentOptions(
-                                isUploading = attachmentState.isUploading,
-                                onClicked = { dismissWithAnimation() } // 这里点击关闭对话框，稍后再重新拉起。
-                            )
-                            // 下面就是加载态的圆圈加载
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Box(contentAlignment = Alignment.Center) {
+                        AttachmentOptions(
+                            isUploading = attachmentState.isUploading,
+                            onDismissAfterPick = { dismissDirectly() },
+                            onStyleClick = {
+                                activePanel =
+                                    if (activePanel == MenuPanel.STYLE) MenuPanel.NONE
+                                    else MenuPanel.STYLE
+                            },
+                            onKeyClick = {
+                                activePanel =
+                                    if (activePanel == MenuPanel.KEY) MenuPanel.NONE
+                                    else MenuPanel.KEY
+                            }
+                        )
+
+                        if (attachmentState.isUploading) {
                             Row(horizontalArrangement = Arrangement.Center) {
-                                AnimatedVisibility(
-                                    visible = attachmentState.isUploading,
-                                    enter = fadeIn(animationSpec = tween(300)),
-                                    exit = fadeOut(animationSpec = tween(200)) + scaleOut(
-                                        animationSpec = tween(
-                                            200
-                                        )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(
+                                        progress = { attachmentState.progress ?: 0f }
                                     )
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        CircularProgressIndicator(
-                                            progress = { attachmentState.progress ?: 0f }
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = stringResource(R.string.crypto_attachment_uploading),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = stringResource(R.string.crypto_attachment_uploading),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
                                 }
                             }
                         }
+                    }
 
-
+                    if (activePanel != MenuPanel.NONE) {
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // ✨ 3. 预览区域的逻辑更新
-                        AnimatedVisibility(
-                            // 上传完毕才显示
-                            visible = attachmentState.previewInfo != null && attachmentState.result.isNotEmpty()
-                        ) {
-                            // 使用 rememberUpdatedState 可以在不引起整个对话框重组的情况下更新预览内容
-                            val currentPreview by rememberUpdatedState(attachmentState.previewInfo)
-                            currentPreview?.let {
-                                FilePreview(
-                                    uri = it.uri,
-                                    fileName = it.fileName,
-                                    fileSize = it.fileSizeFormatted,
-                                    isImage = it.isImage,
-                                    aspectRatio = it.imageAspectRatio
+                        when (activePanel) {
+                            MenuPanel.STYLE -> {
+                                InlineSingleChoicePanel(
+                                    title = "语种",
+                                    items = CiphertextStyleType.entries.map {
+                                        it.toString() to stringResource(it.displayNameResId)
+                                    },
+                                    selectedKey = ciphertextStyleType,
+                                    onItemClick = { selected ->
+                                        ciphertextStyleType = selected
+                                    }
                                 )
                             }
+
+                            MenuPanel.KEY -> {
+                                InlineSingleChoicePanel(
+                                    title = "密钥",
+                                    items = displayKeys.map { key -> key to key },
+                                    selectedKey = activeKey,
+                                    onItemClick = { selected ->
+                                        activeKey = selected
+                                    }
+                                )
+                            }
+
+                            MenuPanel.NONE -> Unit
+                        }
+                    }
+
+                    if (attachmentState.previewInfo != null && attachmentState.result.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        val currentPreview by rememberUpdatedState(attachmentState.previewInfo)
+                        currentPreview?.let {
+                            FilePreview(
+                                uri = it.uri,
+                                fileName = it.fileName,
+                                fileSize = it.fileSizeFormatted,
+                                isImage = it.isImage,
+                                aspectRatio = it.imageAspectRatio
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = onDismissRequest,
+                            enabled = !attachmentState.isUploading
+                        ) {
+                            Text(stringResource(R.string.cancel))
                         }
 
-                        // ✨ 4. URL输入框已完全移除
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
+                        Button(
+                            onClick = { onSendRequest(attachmentState.result) },
+                            enabled = attachmentState.isUploadFinished && !attachmentState.isUploading
                         ) {
-                            // 取消按钮
-                            TextButton(
-                                onClick = { dismissWithAnimation() },
-                                enabled = !attachmentState.isUploading
-                            ) {
-                                Text(stringResource(R.string.cancel))
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                // ✨ 发送按钮的可用性也由外部状态决定
-                                onClick = { onSendRequest(attachmentState.result) },
-                                enabled = attachmentState.isUploadFinished && !attachmentState.isUploading
-                            ) {
-                                Text(stringResource(R.string.send))
-                            }
+                            Text(stringResource(R.string.send))
                         }
                     }
                 }
@@ -222,29 +255,28 @@ fun SendAttachmentDialog(
     }
 }
 
-// 文件和图片的预览组件
 @Composable
 fun FilePreview(
     uri: Uri,
     fileName: String,
     fileSize: String,
     isImage: Boolean,
-    aspectRatio: Float?, // 新增宽高比参数
+    aspectRatio: Float?,
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 80.dp), // 设置一个最小高度
+            .heightIn(min = 80.dp),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+        ),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                alpha = 0.3f
-            )
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
         )
     ) {
         if (isImage) {
-            // 如果是图片，使用AsyncImage来异步加载并显示
             AsyncImage(
                 model = uri,
                 contentDescription = "Image Preview",
@@ -252,19 +284,16 @@ fun FilePreview(
                     .fillMaxWidth()
                     .heightIn(max = 400.dp)
                     .let {
-                        // ✨ 关键改动：如果宽高比有效，就应用它
                         if (aspectRatio != null && aspectRatio > 0) {
-                            it.aspectRatio(aspectRatio)
+                            it.heightIn(max = 400.dp)
                         } else {
-                            // 否则给一个默认高度
                             it.height(180.dp)
                         }
                     }
                     .clip(RoundedCornerShape(16.dp)),
-                contentScale = ContentScale.Crop // 裁剪图片以填充空间
+                contentScale = ContentScale.Crop
             )
         } else {
-            // 如果是普通文件，显示图标、文件名和大小
             Row(
                 modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -275,14 +304,16 @@ fun FilePreview(
                     modifier = Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
+
                 Spacer(modifier = Modifier.width(16.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = fileName,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 2, // 最多显示两行
-                        overflow = TextOverflow.Ellipsis // 超出部分显示省略号
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = fileSize,
@@ -299,62 +330,149 @@ fun FilePreview(
 private fun AttachmentOptions(
     isUploading: Boolean,
     modifier: Modifier = Modifier,
-    onClicked: () -> Unit,
+    onDismissAfterPick: () -> Unit,
+    onStyleClick: () -> Unit,
+    onKeyClick: () -> Unit,
 ) {
     val context = LocalContext.current
 
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        SendOptionItem(
-            icon = Icons.Outlined.Collections,
-            label = stringResource(R.string.crypto_attachment_media),
-            enabled = !isUploading,
-            onClick = {
-//                val intent = Intent(Intent.ACTION_PICK).apply {
-//                    type = "image/* video/*" // 同时选择图片和视频
-//                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-//                }
-//                context.startActivity(intent)
-
-                // 这里体现了两种intent的创建方式，上面的是先弹出一个弹窗，让用户选择其一，再具体拉出对应弹窗，适合service上下文
-
-                // 下面我们这里指定一个activity，就方便很多。
-                val intent = Intent(context, AttachmentPickerActivity::class.java).apply {
-                    // 这里放个extra，activity内部就根据这个额外的kv判断具体拉起逻辑
-                    putExtra(
-                        AttachmentPickerActivity.EXTRA_PICK_TYPE,
-                        AttachmentPickerActivity.TYPE_MEDIA
-                    )
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            SendOptionItem(
+                icon = Icons.Outlined.Collections,
+                label = "相册",
+                enabled = !isUploading,
+                onClick = {
+                    val intent = Intent(context, AttachmentPickerActivity::class.java).apply {
+                        putExtra(
+                            AttachmentPickerActivity.EXTRA_PICK_TYPE,
+                            AttachmentPickerActivity.TYPE_MEDIA
+                        )
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    onDismissAfterPick()
                 }
-                context.startActivity(intent)
-                onClicked()
-            }
-        )
-        SendOptionItem(
-            icon = Icons.Outlined.FileOpen,
-            label = stringResource(R.string.crypto_attachment_file),
-            enabled = !isUploading,
-            onClick = {
-                val intent = Intent(context, AttachmentPickerActivity::class.java).apply {
-                    putExtra(
-                        AttachmentPickerActivity.EXTRA_PICK_TYPE,
-                        AttachmentPickerActivity.TYPE_FILE
-                    )
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+
+            SendOptionItem(
+                icon = Icons.Outlined.FileOpen,
+                label = "文件",
+                enabled = !isUploading,
+                onClick = {
+                    val intent = Intent(context, AttachmentPickerActivity::class.java).apply {
+                        putExtra(
+                            AttachmentPickerActivity.EXTRA_PICK_TYPE,
+                            AttachmentPickerActivity.TYPE_FILE
+                        )
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    onDismissAfterPick()
                 }
-                context.startActivity(intent)
-                onClicked()
-            }
-        )
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            SendOptionItem(
+                icon = Icons.Outlined.Translate,
+                label = "语种",
+                enabled = !isUploading,
+                onClick = onStyleClick
+            )
+
+            SendOptionItem(
+                icon = Icons.Filled.VpnKey,
+                label = "密钥",
+                enabled = !isUploading,
+                onClick = onKeyClick
+            )
+        }
     }
 }
 
-/**
- * 对话框里可点击的选项按钮的UI封装
- */
+@Composable
+private fun InlineSingleChoicePanel(
+    title: String,
+    items: List<Pair<String, String>>,
+    selectedKey: String,
+    onItemClick: (String) -> Unit,
+) {
+    val scrollState = rememberScrollState()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items.forEach { (key, label) ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onItemClick(key) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (key == selectedKey) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = key == selectedKey,
+                                onClick = { onItemClick(key) },
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun RowScope.SendOptionItem(
     icon: ImageVector,
@@ -363,8 +481,8 @@ private fun RowScope.SendOptionItem(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    val alpha by animateFloatAsState(targetValue = if (enabled) 1f else 0.5f, label = "")
     val shape = RoundedCornerShape(12.dp)
+
     Surface(
         modifier = modifier
             .weight(1f)
@@ -374,8 +492,15 @@ private fun RowScope.SendOptionItem(
                 enabled = enabled,
             ),
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f * alpha),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f * alpha))
+        color = if (enabled) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+        },
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = if (enabled) 0.2f else 0.1f)
+        )
     ) {
         Column(
             modifier = Modifier.padding(vertical = 16.dp),
@@ -386,13 +511,21 @@ private fun RowScope.SendOptionItem(
                 imageVector = icon,
                 contentDescription = label,
                 modifier = Modifier.size(32.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha)
+                tint = if (enabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                }
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                }
             )
         }
     }
