@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -36,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,10 +86,11 @@ data class AttachmentPreviewState(
     val imageAspectRatio: Float? = null,
 )
 
-private enum class MenuPanel {
+private enum class MenuContent {
     NONE,
     STYLE,
-    KEY
+    KEY,
+    PREVIEW
 }
 
 @Composable
@@ -97,7 +100,7 @@ fun SendAttachmentDialog(
     onSendRequest: (String) -> Unit,
 ) {
     val coroutineScope = rememberCoroutineScope()
-    var activePanel by remember { mutableStateOf(MenuPanel.NONE) }
+    var currentContent by remember { mutableStateOf(MenuContent.NONE) }
 
     val keysFromDataStore: Array<String> by rememberKeyArrayState()
 
@@ -116,6 +119,14 @@ fun SendAttachmentDialog(
             keysFromDataStore.isNotEmpty() -> keysFromDataStore.toList()
             activeKey.isNotBlank() -> listOf(activeKey)
             else -> listOf(Constant.DEFAULT_SECRET_KEY)
+        }
+    }
+
+    LaunchedEffect(attachmentState.previewInfo, attachmentState.result) {
+        if (attachmentState.previewInfo != null && attachmentState.result.isNotEmpty()) {
+            currentContent = MenuContent.PREVIEW
+        } else if (currentContent == MenuContent.PREVIEW) {
+            currentContent = MenuContent.NONE
         }
     }
 
@@ -152,14 +163,14 @@ fun SendAttachmentDialog(
                             isUploading = attachmentState.isUploading,
                             onDismissAfterPick = { dismissDirectly() },
                             onStyleClick = {
-                                activePanel =
-                                    if (activePanel == MenuPanel.STYLE) MenuPanel.NONE
-                                    else MenuPanel.STYLE
+                                currentContent =
+                                    if (currentContent == MenuContent.STYLE) MenuContent.NONE
+                                    else MenuContent.STYLE
                             },
                             onKeyClick = {
-                                activePanel =
-                                    if (activePanel == MenuPanel.KEY) MenuPanel.NONE
-                                    else MenuPanel.KEY
+                                currentContent =
+                                    if (currentContent == MenuContent.KEY) MenuContent.NONE
+                                    else MenuContent.KEY
                             }
                         )
 
@@ -180,11 +191,11 @@ fun SendAttachmentDialog(
                         }
                     }
 
-                    if (activePanel != MenuPanel.NONE) {
+                    if (currentContent != MenuContent.NONE) {
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        when (activePanel) {
-                            MenuPanel.STYLE -> {
+                        when (currentContent) {
+                            MenuContent.STYLE -> {
                                 InlineSingleChoicePanel(
                                     title = "语种",
                                     items = CiphertextStyleType.entries.map {
@@ -197,7 +208,7 @@ fun SendAttachmentDialog(
                                 )
                             }
 
-                            MenuPanel.KEY -> {
+                            MenuContent.KEY -> {
                                 InlineSingleChoicePanel(
                                     title = "密钥",
                                     items = displayKeys.map { key -> key to key },
@@ -208,22 +219,20 @@ fun SendAttachmentDialog(
                                 )
                             }
 
-                            MenuPanel.NONE -> Unit
-                        }
-                    }
+                            MenuContent.PREVIEW -> {
+                                val currentPreview by rememberUpdatedState(attachmentState.previewInfo)
+                                currentPreview?.let {
+                                    FilePreview(
+                                        uri = it.uri,
+                                        fileName = it.fileName,
+                                        fileSize = it.fileSizeFormatted,
+                                        isImage = it.isImage,
+                                        aspectRatio = it.imageAspectRatio
+                                    )
+                                }
+                            }
 
-                    if (attachmentState.previewInfo != null && attachmentState.result.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        val currentPreview by rememberUpdatedState(attachmentState.previewInfo)
-                        currentPreview?.let {
-                            FilePreview(
-                                uri = it.uri,
-                                fileName = it.fileName,
-                                fileSize = it.fileSizeFormatted,
-                                isImage = it.isImage,
-                                aspectRatio = it.imageAspectRatio
-                            )
+                            MenuContent.NONE -> Unit
                         }
                     }
 
@@ -284,8 +293,8 @@ fun FilePreview(
                     .fillMaxWidth()
                     .heightIn(max = 400.dp)
                     .let {
-                        if (aspectRatio != null && aspectRatio > 0) {
-                            it.heightIn(max = 400.dp)
+                        if (aspectRatio != null && aspectRatio > 0f) {
+                            it.aspectRatio(aspectRatio)
                         } else {
                             it.height(180.dp)
                         }
