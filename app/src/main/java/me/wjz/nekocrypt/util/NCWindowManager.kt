@@ -32,6 +32,7 @@ class NCWindowManager(
     private val onDismissRequest: () -> Unit = {},
     private val anchorRect: Rect? = null,
     private val isDraggable: Boolean = false,
+    private val focusable: Boolean = false,
     private val content: @Composable () -> Unit,
 ) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -95,14 +96,29 @@ class NCWindowManager(
         // 这个accessibility不需要用户授权，比application的好
         val layoutFlag = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
 
+        val flags = if (focusable) {
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        } else {
+            // ✨ 核心修正：加上 FLAG_LAYOUT_IN_SCREEN 这句关键的“咒语”！
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN // 这句是关键
+        }
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutFlag,
-            // ✨ 核心修正：加上 FLAG_LAYOUT_IN_SCREEN 这句关键的“咒语”！
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,// 这句是关键
+            flags,
             PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            if (focusable) {
+                softInputMode =
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
+                            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+            }
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             params.blurBehindRadius = 30
@@ -112,6 +128,8 @@ class NCWindowManager(
             params.gravity = Gravity.TOP or Gravity.START
             params.x = anchorRect.left
             params.y = anchorRect.top
+        } else {
+            params.gravity = Gravity.CENTER
         }
         return params
     }
@@ -155,7 +173,7 @@ class NCWindowManager(
      * ✨ 全新函数：创建一个处理拖动逻辑的 OnTouchListener。
      * 它能智能地区分用户的“轻点”和“拖动”手势。
      */
-    private fun createDragTouchListener():View.OnTouchListener{
+    private fun createDragTouchListener(): View.OnTouchListener {
         // 手指按下时的初始位置
         var initialX = 0
         var initialY = 0
@@ -164,7 +182,7 @@ class NCWindowManager(
         val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         var isDragging = false
 
-        return View.OnTouchListener{ view, event ->
+        return View.OnTouchListener { view, event ->
             val params = view.layoutParams as? WindowManager.LayoutParams ?: return@OnTouchListener false
 
             when (event.action) {
@@ -178,6 +196,7 @@ class NCWindowManager(
                     initialTouchY = event.rawY
                     true // 返回 true，表示我们要继续处理后续的 MOVE 和 UP 事件
                 }
+
                 MotionEvent.ACTION_MOVE -> {
                     // 计算手指滑动的距离
                     val dx = event.rawX - initialTouchX
@@ -196,6 +215,7 @@ class NCWindowManager(
                     }
                     true
                 }
+
                 MotionEvent.ACTION_UP -> {
                     // 如果手指抬起时，我们判定这并非一次拖动...
                     if (!isDragging) {
@@ -204,6 +224,7 @@ class NCWindowManager(
                     }
                     true
                 }
+
                 else -> false // 其他事件我们不关心
             }
         }

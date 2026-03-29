@@ -42,6 +42,7 @@ import me.wjz.nekocrypt.ui.dialog.AttachmentState
 import me.wjz.nekocrypt.ui.dialog.SendAttachmentDialog
 import me.wjz.nekocrypt.util.CryptoManager
 import me.wjz.nekocrypt.util.CryptoManager.applyCiphertextStyle
+import me.wjz.nekocrypt.util.CryptoManager.applyCustomCiphertextStyle
 import me.wjz.nekocrypt.util.CryptoManager.containsCiphertext
 import me.wjz.nekocrypt.util.CryptoUploader
 import me.wjz.nekocrypt.util.NCFileProtocol
@@ -126,6 +127,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                         handleDecryption(event.source)
                     }
                 }
+
                 // 沉浸模式：当窗口内容变化时，主动扫描并解密
                 CryptoMode.IMMERSIVE.key -> {
                     if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
@@ -497,7 +499,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
     }
 
     // 自动加密并发送消息
-    protected fun doEncryptAndClick() {
+    protected fun doEncryptAndClick(hiddenText: String? = null, key: String? = null) {
         runCatching {
             val currentService = service ?: return
             // ✨ 使用一个单独的协程来准备加密文本，避免阻塞
@@ -508,13 +510,40 @@ abstract class BaseChatAppHandler : ChatAppHandler {
             val inputNode = findSingleNode(root!!, inputId, Constant.EDIT_TEXT)
             val originalText = inputNode?.text?.toString()
 
+            if (originalText.isNullOrBlank()) {
+                currentService.serviceScope.launch {
+                    showToast("聊天框为空，无法发送")
+                }
+                return
+            }
+
             // 2. 加密文本
-            val encryptedText = if (originalText!!.containsCiphertext()) originalText else
-                CryptoManager.encrypt(originalText, currentService.currentKey).applyCiphertextStyle()
+            val encryptedText = if (hiddenText.isNullOrBlank()) {
+                if (originalText.containsCiphertext()) {
+                    originalText
+                } else {
+                    CryptoManager.encrypt(originalText, key ?: currentService.currentKey)
+                        .applyCiphertextStyle()
+                }
+            } else {
+                // 逻辑反过来：
+                // 当前聊天框里的内容 = 表面显示文字
+                // 弹窗输入框里的内容 = 被转换为透明字符的隐藏文字
+                CryptoManager.encrypt(hiddenText, key ?: currentService.currentKey)
+                    .applyCustomCiphertextStyle(originalText)
+            }
 
             // 3. 调用核心发送函数
             setTextAndSend(encryptedText)
         }.onFailure { exception -> Log.e(tag, "doEncryptAndClick Error${exception.message}") }
+    }
+
+    private fun getCurrentInputText(): String? {
+        val currentService = service ?: return null
+        val root = if (currentService.rootInActiveWindow.isEmpty()) getActiveWindowRoot()
+        else currentService.rootInActiveWindow
+        val inputNode = root?.let { findSingleNode(it, inputId, Constant.EDIT_TEXT) }
+        return inputNode?.text?.toString()
     }
 
     // 普通点击的发送逻辑 (用于标准模式的短按)
@@ -633,7 +662,14 @@ abstract class BaseChatAppHandler : ChatAppHandler {
             // 2. 检查距离上次点击的时间，是否在我们的“双击”阈值之内
             if (currentTime - lastInputClickTime < currentService.showAttachmentViewDoubleClickThreshold) {
                 Log.d(tag, "检测到输入框双击事件, 准备启动发送附件Activity")
-                showAttachmentDialog()
+
+                // 双击当下直接检查聊天框里有没有内容
+                val currentInputText = node.text?.toString()?.takeIf { it.isNotBlank() }
+                    ?: getCurrentInputText()
+
+                showAttachmentDialog(
+                    hasChatInputText = !currentInputText.isNullOrBlank()
+                )
                 lastInputClickTime = 0L
             } else {
                 // 如果是第一次点击，或者距离上次点击太久，就只更新时间戳
@@ -661,7 +697,7 @@ abstract class BaseChatAppHandler : ChatAppHandler {
     /**
      * 创建并显示“发送附件”对话框
      */
-    private fun showAttachmentDialog() {
+    private fun showAttachmentDialog(hasChatInputText: Boolean = !getCurrentInputText().isNullOrBlank()) {
         // 每次创建的时候就重置attachmentState
         resetAttachmentState()
         val currentService = service ?: return
@@ -670,7 +706,8 @@ abstract class BaseChatAppHandler : ChatAppHandler {
         sendAttachmentDialogManager = NCWindowManager(
             context = currentService,
             onDismissRequest = { sendAttachmentDialogManager = null },
-            anchorRect = null
+            anchorRect = null,
+            focusable = true
         ) {
             CompositionLocalProvider(
                 LocalDataStoreManager provides NekoCryptApp.instance.dataStoreManager
@@ -683,6 +720,15 @@ abstract class BaseChatAppHandler : ChatAppHandler {
                         setTextAndSend(url)
                         sendAttachmentDialogManager?.dismiss()
                     },
+                    onCustomTextSendRequest = { hiddenText, selectedKey ->
+                        // 先关闭弹窗，再等待界面恢复后发送
+                        sendAttachmentDialogManager?.dismiss()
+                        currentService.serviceScope.launch {
+                            delay(120)
+                            doEncryptAndClick(hiddenText, selectedKey)
+                        }
+                    },
+                    hasChatInputText = hasChatInputText,
                     attachmentState = attachmentState
                 )
             }
@@ -701,46 +747,80 @@ abstract class BaseChatAppHandler : ChatAppHandler {
             Log.d(tag, "service为null！不执行发送！")
             return
         }
-        val root = if (service!!.rootInActiveWindow.isEmpty()) getActiveWindowRoot()
-        else currentService.rootInActiveWindow
-        if (root == null) {
-            Log.d(tag, "root为null！不执行发送！")
-            return
-        }
-        currentService.serviceScope.launch {
-            // --- 更新缓存的输入框节点 ---
-            cachedInputNode = if (isNodeValid(cachedInputNode)) cachedInputNode
-            else findSingleNode(root, inputId, Constant.EDIT_TEXT)
 
-            if (cachedInputNode == null) {
-                Log.e(tag, "发送失败：未能精确找到EditText输入框！")
-                showToast("发送失败：找不到输入框")
+        currentService.serviceScope.launch {
+            var setSuccess = false
+
+            // --- 1. 反复获取当前 root 和输入框，直到成功设置文本 ---
+            for (attempt in 0 until 8) {
+                val currentRoot = if (currentService.rootInActiveWindow.isEmpty()) {
+                    getActiveWindowRoot()
+                } else {
+                    currentService.rootInActiveWindow
+                }
+
+                if (currentRoot == null) {
+                    Log.d(tag, "第 ${attempt + 1} 次尝试获取 root 失败...")
+                    delay(120)
+                    continue
+                }
+
+                cachedInputNode = findSingleNode(currentRoot, inputId, Constant.EDIT_TEXT)
+                    ?: cachedInputNode?.takeIf { isNodeValid(it) }
+
+                if (cachedInputNode == null) {
+                    Log.d(tag, "第 ${attempt + 1} 次尝试查找输入框失败...")
+                    delay(120)
+                    continue
+                }
+
+                if (performSetText(cachedInputNode!!, textToSet)) {
+                    setSuccess = true
+                    break
+                } else {
+                    Log.d(tag, "第 ${attempt + 1} 次尝试设置文本失败...")
+                    delay(120)
+                }
+            }
+
+            if (!setSuccess) {
+                Log.e(tag, "发送失败：未能成功设置输入框文本！")
+                showToast(currentService.getString(R.string.set_text_failed, textToSet.length))
                 return@launch
             }
 
-            // --- 2. 设置文本 ---
-            performSetText(cachedInputNode!!, textToSet).let { success ->
-                if (!success) {
-                    showToast(currentService.getString(R.string.set_text_failed, textToSet.length))
-                    return@launch
-                }
-            }
+            // 给界面一点时间，让发送按钮重新出现 / 刷新
+            delay(120)
 
-            // --- 更新缓存的发送按钮 ---
-            repeat(5) { attempt ->
-                cachedSendBtnNode = findSingleNode(root, sendBtnId, Constant.VIEW_ID_BTN)
+            // --- 2. 每次都重新获取当前 root，再查找发送按钮 ---
+            var sendSuccess = false
+            for (attempt in 0 until 10) {
+                val currentRoot = if (currentService.rootInActiveWindow.isEmpty()) {
+                    getActiveWindowRoot()
+                } else {
+                    currentService.rootInActiveWindow
+                }
+
+                if (currentRoot == null) {
+                    Log.d(tag, "第 ${attempt + 1} 次尝试获取发送阶段 root 失败...")
+                    delay(120)
+                    continue
+                }
+
+                cachedSendBtnNode = findSingleNode(currentRoot, sendBtnId, Constant.VIEW_ID_BTN)
+                    ?: cachedSendBtnNode?.takeIf { isNodeValid(it) }
+
                 if (cachedSendBtnNode != null) {
-                    return@repeat
+                    Log.d(tag, "成功找到发送按钮，执行点击！")
+                    sendSuccess = cachedSendBtnNode!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if (sendSuccess) break
                 }
-                Log.d(tag, "第 ${attempt + 1} 次尝试查找发送按钮...")
-                delay(100)
+
+                Log.d(tag, "第 ${attempt + 1} 次尝试查找/点击发送按钮失败...")
+                delay(120)
             }
 
-            // --- 4. 根据查找结果执行操作 ---
-            if (cachedSendBtnNode != null) {
-                Log.d(tag, "成功找到发送按钮，执行点击！")
-                cachedSendBtnNode!!.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            } else {
+            if (!sendSuccess) {
                 Log.e(tag, "发送失败：在设置文本后，依然未能找到发送按钮！")
                 showToast("发送失败：找不到发送按钮")
             }

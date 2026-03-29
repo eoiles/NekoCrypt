@@ -32,15 +32,17 @@ object CryptoManager {
     //  当前使用的密文语种
     val ciphertextStyleType: String by scope.observeAsState(flowProvider = {
         dataStoreManager.getSettingFlow(SettingKeys.CIPHERTEXT_STYLE, CiphertextStyleType.NEKO.toString())
-    },initialValue = CiphertextStyleType.NEKO.toString())
+    }, initialValue = CiphertextStyleType.NEKO.toString())
+
     //  密文长度词组最小值
     val ciphertextStyleLengthMin by scope.observeAsState(flowProvider = {
         dataStoreManager.getSettingFlow(SettingKeys.CIPHERTEXT_STYLE_LENGTH_MIN, 3)
-    },initialValue = 1)
+    }, initialValue = 1)
+
     //  密文长度词组最大值
     val ciphertextStyleLengthMax by scope.observeAsState(flowProvider = {
         dataStoreManager.getSettingFlow(SettingKeys.CIPHERTEXT_STYLE_LENGTH_MAX, 7)
-    },initialValue = 1)
+    }, initialValue = 1)
 
     private const val ALGORITHM = "AES"
     const val TRANSFORMATION = "AES/GCM/NoPadding"
@@ -76,6 +78,7 @@ object CryptoManager {
         val encryptedBytes = encryptBytes(plaintextBytes, key)
         return baseNEncode(encryptedBytes)
     }
+
     // 提供一个重载
     fun encrypt(data: ByteArray, key: String): ByteArray {
         return encryptBytes(data, key)
@@ -132,7 +135,7 @@ object CryptoManager {
     /**
      * 判断给定字符串是否包含密文
      */
-    fun String.containsCiphertext(): Boolean{
+    fun String.containsCiphertext(): Boolean {
         return this.any { STEALTH_CHAR_TO_INDEX_MAP.containsKey(it) }
     }
 
@@ -192,7 +195,9 @@ object CryptoManager {
         val bytes = bigInt.toByteArray()
         return if (bytes[0].toInt() == 0) {
             bytes.copyOfRange(1, bytes.size)
-        } else { bytes }
+        } else {
+            bytes
+        }
     }
 
     // -- 通过inputStream和outputStream来流式解密 --
@@ -203,7 +208,7 @@ object CryptoManager {
      * @param outputStream 用于写入解密后数据的输出流
      * @param key 用于解密的密钥
      */
-    fun decryptStream(inputStream: InputStream, outputStream: OutputStream, key: String){
+    fun decryptStream(inputStream: InputStream, outputStream: OutputStream, key: String) {
         val iv = ByteArray(IV_LENGTH_BYTES)
         require(inputStream.read(iv) == IV_LENGTH_BYTES) {
             "输入流太短，无法读取IV。"
@@ -256,17 +261,37 @@ object CryptoManager {
         // 先随机挑选词组
         val selectedParts = List(count) { content.random() }
 
-        // 按“词组边界”拆成前后两半，避免切断补充平面字符
-        val middleIndex = selectedParts.size / 2
-        val prefix = selectedParts.take(middleIndex).joinToString("")
-        val suffix = selectedParts.drop(middleIndex).joinToString("")
+        return applyVisibleTextStyle(selectedParts)
+    }
+
+    /**
+     * ✨ 全新：将用户输入的自定义显示文字，当成“语种风格”包裹隐形密文。
+     *
+     * @return 包含自定义显示文字和真实密文的最终字符串。
+     */
+    fun String.applyCustomCiphertextStyle(customStyleText: String): String {
+        val cleanText = customStyleText.trim()
+        if (cleanText.isEmpty()) return this
+
+        // 按 code point 切分，避免切断 emoji / 补充平面字符
+        val codePointCount = cleanText.codePointCount(0, cleanText.length)
+        val middleIndex = cleanText.offsetByCodePoints(0, codePointCount / 2)
+        val prefix = cleanText.substring(0, middleIndex)
+        val suffix = cleanText.substring(middleIndex)
 
         return prefix + this + suffix
     }
 
+    private fun String.applyVisibleTextStyle(parts: List<String>): String {
+        // 按“词组边界”拆成前后两半，避免切断补充平面字符
+        val middleIndex = parts.size / 2
+        val prefix = parts.take(middleIndex).joinToString("")
+        val suffix = parts.drop(middleIndex).joinToString("")
+        return prefix + this + suffix
+    }
 }
 
-enum class CiphertextStyleType(val displayNameResId:Int,val content:List<String>){
+enum class CiphertextStyleType(val displayNameResId: Int, val content: List<String>) {
     NEKO(
         displayNameResId = R.string.cipher_style_neko,  // 猫娘语
         content = listOf("嗷呜!", "咕噜~", "喵~", "喵咕~", "喵喵~", "喵?", "喵喵！", "哈！", "喵呜...", "咪咪喵！", "咕咪?")
@@ -277,20 +302,39 @@ enum class CiphertextStyleType(val displayNameResId:Int,val content:List<String>
     ),
     HILICHURLIAN(
         displayNameResId = R.string.cipher_style_Hilichurlian, //丘丘语
-        content = listOf("Muhe ye!", "Ye dada!", "Ya yika!", "Biat ye！", "Dala si？", "Yaya ika！", "Mi? Dada!",
-            "ye pupu!", "gusha dada!","Dala？","Mosi mita！","Mani ye！","Biat ye！","Todo yo.","tiga mitono!","Biat, gusha!","Unu dada!","Mimi movo!")
+        content = listOf(
+            "Muhe ye!",
+            "Ye dada!",
+            "Ya yika!",
+            "Biat ye！",
+            "Dala si？",
+            "Yaya ika！",
+            "Mi? Dada!",
+            "ye pupu!",
+            "gusha dada!",
+            "Dala？",
+            "Mosi mita！",
+            "Mani ye！",
+            "Biat ye！",
+            "Todo yo.",
+            "tiga mitono!",
+            "Biat, gusha!",
+            "Unu dada!",
+            "Mimi movo!"
+        )
     ),
     NIER(
-    displayNameResId = R.string.cipher_style_nier, // 尼尔语
-    content = listOf(
-    "Ee ", "ser ", "les ", "hii ", "san ", "mia ", "ni ", "Escalei ", "lu ", "push ", "to ", "lei ",
-    "Schmosh ", "juna ", "wu ", "ria ", "e ", "je ", "cho ", "no ",
-    "Nasico ", "whosh ", "pier ", "wa ", "nei ", "Wananba ", "he ", "na ", "qua ", "lei ",
-    "Sila ", "schmer ", "ya ", "pi ", "pa ", "lu ", "Un ", "schen ", "ta ", "tii ", "pia ", "pa ", "ke ", "lo ")
+        displayNameResId = R.string.cipher_style_nier, // 尼尔语
+        content = listOf(
+            "Ee ", "ser ", "les ", "hii ", "san ", "mia ", "ni ", "Escalei ", "lu ", "push ", "to ", "lei ",
+            "Schmosh ", "juna ", "wu ", "ria ", "e ", "je ", "cho ", "no ",
+            "Nasico ", "whosh ", "pier ", "wa ", "nei ", "Wananba ", "he ", "na ", "qua ", "lei ",
+            "Sila ", "schmer ", "ya ", "pi ", "pa ", "lu ", "Un ", "schen ", "ta ", "tii ", "pia ", "pa ", "ke ", "lo "
+        )
     ),
     MANBO(
         displayNameResId = R.string.cipher_style_manbo, //  曼波！
-        content = listOf("曼波~","哈吉米~","哈吉米咩那咩路多~","曼波!","曼波...","欧码叽哩，曼波！","叮咚鸡！","哈压库！","哈压库~","哈吉米！","哦耶~","duang~")
+        content = listOf("曼波~", "哈吉米~", "哈吉米咩那咩路多~", "曼波!", "曼波...", "欧码叽哩，曼波！", "叮咚鸡！", "哈压库！", "哈压库~", "哈吉米！", "哦耶~", "duang~")
     ),
     BRAILLE(
         displayNameResId = R.string.cipher_style_braille, // 盲文点阵
@@ -308,12 +352,14 @@ enum class CiphertextStyleType(val displayNameResId:Int,val content:List<String>
             "𝓐𝓻𝓬𝓪𝓷𝓾𝓶 ", "𝓓𝓾𝓵𝓬𝓮𝓭𝓸 ", "𝓛𝓪𝓬𝓻𝓲𝓶𝓪 ", "𝓛𝓾𝓬𝓮𝓻𝓷𝓪 ", "𝓥𝓸𝓵𝓾𝓬𝓮𝓻 ",
             "𝓥𝓮𝓷𝓾𝓼𝓽𝓪𝓼 ", "𝓒𝓵𝓪𝓻𝓲𝓽𝓪𝓼 ", "𝓢𝓲𝓭𝓮𝓻𝓮𝓾𝓼 ", "𝓥𝓸𝓵𝓾𝓬𝓻𝓲𝓼 ", "𝓢𝓾𝓪𝓿𝓲𝓽𝓪𝓼 ",
             "𝓢𝓮𝓻𝓮𝓷𝓲𝓽𝓪𝓼 ", "𝓢𝓲𝓵𝓮𝓷𝓽𝓲𝓾𝓶 ", "𝓜𝓲𝓻𝓪𝓬𝓾𝓵𝓾𝓶 ", "𝓒𝓪𝓮𝓵𝓲𝓬𝓸𝓵𝓪 ", "𝓒𝓪𝓮𝓵𝓮𝓼𝓽𝓲𝓼 ",
-            "𝓐𝓮𝓽𝓮𝓻𝓷𝓲𝓽𝓪𝓼 ", "𝓒𝓸𝓻𝓾𝓼𝓬𝓪𝓽𝓲𝓸 ", "𝓛𝓲𝓺𝓾𝓮𝓼𝓬𝓮𝓻𝓮 ", "𝓜𝓮𝓵𝓵𝓲𝓯𝓵𝓾𝓾𝓼 ", "𝓕𝓻𝓪𝓰𝓻𝓪𝓷𝓽𝓲𝓪 ")
+            "𝓐𝓮𝓽𝓮𝓻𝓷𝓲𝓽𝓪𝓼 ", "𝓒𝓸𝓻𝓾𝓼𝓬𝓪𝓽𝓲𝓸 ", "𝓛𝓲𝓺𝓾𝓮𝓼𝓬𝓮𝓻𝓮 ", "𝓜𝓮𝓵𝓵𝓲𝓯𝓵𝓾𝓾𝓼 ", "𝓕𝓻𝓪𝓰𝓻𝓪𝓷𝓽𝓲𝓪 "
+        )
     );
-    companion object{
+
+    companion object {
         //  辅助函数
-        fun fromName(name:String): CiphertextStyleType{
-            return entries.find { it.name == name.uppercase(getDefault()) } ?:NEKO
+        fun fromName(name: String): CiphertextStyleType {
+            return entries.find { it.name == name.uppercase(getDefault()) } ?: NEKO
         }
     }
 }

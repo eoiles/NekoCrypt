@@ -14,9 +14,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -32,6 +35,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,9 +51,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,11 +103,18 @@ private enum class MenuContent {
 @Composable
 fun SendAttachmentDialog(
     attachmentState: AttachmentState,
+    hasChatInputText: Boolean,
     onDismissRequest: () -> Unit,
     onSendRequest: (String) -> Unit,
+    onCustomTextSendRequest: (String, String) -> Unit,
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusRequester = remember { FocusRequester() }
+
     var currentContent by remember { mutableStateOf(MenuContent.NONE) }
+    var customDisplayText by remember { mutableStateOf("") }
 
     val keysFromDataStore: Array<String> by rememberKeyArrayState()
 
@@ -137,16 +151,42 @@ fun SendAttachmentDialog(
         }
     }
 
+    // 现在这里输入的是“隐藏文字”，只有聊天框已有表面显示文字时才有意义
+    val canUseCustomText = hasChatInputText && !attachmentState.isUploading
+    val canSendCustomText = customDisplayText.isNotBlank() && hasChatInputText && !attachmentState.isUploading
+    val canSendAttachment = attachmentState.isUploadFinished && !attachmentState.isUploading
+
+    // 弹出后自动聚焦到输入框并尝试拉起输入法
+    LaunchedEffect(canUseCustomText) {
+        if (canUseCustomText) {
+            delay(150)
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
     NekoCryptTheme(darkTheme = false) {
-        Box(modifier = Modifier.padding(8.dp)) {
+        Box(
+            modifier = Modifier
+                .padding(8.dp)
+                .imePadding()
+                .navigationBarsPadding()
+        ) {
             Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 420.dp)
+                    .heightIn(max = 560.dp),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState)
+                        .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -236,6 +276,21 @@ fun SendAttachmentDialog(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedTextField(
+                        value = customDisplayText,
+                        onValueChange = { customDisplayText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        enabled = canUseCustomText,
+                        singleLine = true,
+                        placeholder = {
+                            Text("隐藏文字!仅聊天框非空时生效")
+                        }
+                    )
+
                     Spacer(modifier = Modifier.height(24.dp))
 
                     Row(
@@ -252,8 +307,14 @@ fun SendAttachmentDialog(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Button(
-                            onClick = { onSendRequest(attachmentState.result) },
-                            enabled = attachmentState.isUploadFinished && !attachmentState.isUploading
+                            onClick = {
+                                if (canSendCustomText) {
+                                    onCustomTextSendRequest(customDisplayText, activeKey)
+                                } else {
+                                    onSendRequest(attachmentState.result)
+                                }
+                            },
+                            enabled = canSendCustomText || canSendAttachment
                         ) {
                             Text(stringResource(R.string.send))
                         }
